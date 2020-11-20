@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "Visualizer": {
+      "commandName": "Project",
+      "commandLineArgs": "file=\"unitcube.obj\""
+    }
+  }
+}

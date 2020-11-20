@@ -1,0 +1,22 @@
+﻿<Window x:Class="Visualizer.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:Visualizer"
+        mc:Ignorable="d"
+        Height="450" Width="800"
+        Title="MainWindow"
+        MouseDown="Window_MouseDown"
+        GotFocus="Window_GotFocus"
+        LostFocus="Window_LostFocus"
+        Closed="Window_Closed"
+        SizeChanged="Window_Resized"
+        ContentRendered="Window_ContentRendered">
+
+    <DockPanel x:Name="DockPanel">
+        <local:RendererWPF></local:RendererWPF>
+    </DockPanel>
+
+
+</Window>
