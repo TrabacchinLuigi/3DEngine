@@ -12,8 +12,7 @@ namespace Visualizer
 {
     public class RendererWPF : FrameworkElement
     {
-        static readonly Random _random = new();
-        private readonly SolidColorBrush brush = Brushes.Gray;
+        private readonly SolidColorBrush _brush;
 
         private readonly SolidColorBrush bgBrush = Brushes.Black;
         private readonly Pen pen;
@@ -28,11 +27,13 @@ namespace Visualizer
 
         public RendererWPF()
         {
+            _brush = new SolidColorBrush(Colors.Gray) { Opacity = 0.5 };
+            _brush.Freeze();
             _Mesh = (Application.Current as App).LoadedMesh;
-            _worldMatrix = Matrix4x4.CreateWorld(Vector3.Zero, Vector3.UnitZ, Vector3.UnitY);
-            _viewPosition =  Vector3.Transform( new Vector3(-1, 1f, -1f), _worldMatrix);
-            
-            _viewMatrix = Matrix4x4.CreateLookAt(_viewPosition, Vector3.Zero,  -Vector3.UnitY);
+            _worldMatrix = Matrix4x4.CreateWorld(Vector3.Zero, Vector3.UnitZ, -Vector3.UnitY);
+            _viewPosition = Vector3.Transform(new Vector3(-1, 3f, -5f), _worldMatrix);
+
+            _viewMatrix = Matrix4x4.CreateLookAt(_viewPosition, Vector3.Zero, Vector3.UnitY);
             _ProjectionMatrix = Matrix4x4.CreatePerspectiveFieldOfView((Single)(Math.PI / 2), 1f, 0.1f, 30);
             pen = new Pen(Brushes.Black, 1);
         }
@@ -56,11 +57,11 @@ namespace Visualizer
                     {
                         var triangle = x.Transform(rotationAndWorld);
                         var normal = triangle.GetNormal();
-                        var dotviewnormal = Vector3.Dot(Vector3.Normalize(_viewPosition), normal);
+                        var dotviewnormal = Vector3.Dot(Vector3.Normalize(triangle.A - _viewPosition), normal);
                         var centroid = Vector3.Divide(triangle.A + triangle.B + triangle.C, 3);
                         return (Triangle: triangle, Normal: normal, DotViewAndNormal: dotviewnormal, Centroid: centroid);
                     })
-                    .Where(x => x.DotViewAndNormal >= 0)
+                    .Where(x => x.DotViewAndNormal < 0)
                     .OrderByDescending(x => x.Triangle.Vectors.Select(v => Vector3.Distance(_viewPosition, v)).Max())
                     .Select(x => (x.Triangle, x.Normal, x.Centroid))
                     .AsParallel();
@@ -94,22 +95,21 @@ namespace Visualizer
                     // Freeze the geometry (make it unmodifiable)
                     // for additional performance benefits.
                     geometry.Freeze();
-                    dc.DrawGeometry(brush, pen, geometry);
+                    dc.DrawGeometry(_brush, pen, geometry);
                     dc.DrawLine(new Pen(Brushes.GreenYellow, 1), RelativeToCenter(new Point(normalStartOut.X, normalStartOut.Y)), RelativeToCenter(new Point(normalEndOut.X, normalEndOut.Y)));
 
                 }
                 {
-                    var updateAndWorld = _updateMatrix * _worldMatrix;
-                    var vec0 = Vector3.Transform(Vector3.Zero, updateAndWorld);
-                    var vecx = Vector3.Transform(Vector3.UnitX * 2f, updateAndWorld);
-                    var vecy = Vector3.Transform(Vector3.UnitY * 2f, updateAndWorld);
-                    var vecz = Vector3.Transform(Vector3.UnitZ * 2f, updateAndWorld);
+                    var vec0 = Vector3.Zero;
+                    var vecx = Vector3.Transform(Vector3.Transform(Vector3.UnitX * 2, _worldMatrix), _updateMatrix);
+                    var vecy = Vector3.Transform(Vector3.Transform(Vector3.UnitY * 2, _worldMatrix), _updateMatrix);
+                    var vecz = Vector3.Transform(Vector3.Transform(Vector3.UnitZ * 2, _worldMatrix), _updateMatrix);
 
                     dc.DrawLine(new Pen(Brushes.Red, 1), RelativeToCenter(new Point(vec0.X, vec0.Y)), RelativeToCenter(new Point(vecx.X, vecx.Y)));
                     dc.DrawLine(new Pen(Brushes.Green, 1), RelativeToCenter(new Point(vec0.X, vec0.Y)), RelativeToCenter(new Point(vecy.X, vecy.Y)));
                     dc.DrawLine(new Pen(Brushes.Blue, 1), RelativeToCenter(new Point(vec0.X, vec0.Y)), RelativeToCenter(new Point(vecz.X, vecz.Y)));
 
-                    var viewPositionOut = Vector3.Transform(_viewPosition, _updateMatrix);
+                    var viewPositionOut = Vector3.Transform(Vector3.Transform(_viewPosition, _worldMatrix), _updateMatrix);
                     dc.DrawLine(new Pen(Brushes.Yellow, 1), RelativeToCenter(new Point(vec0.X, vec0.Y)), RelativeToCenter(new Point(viewPositionOut.X, viewPositionOut.Y)));
                 }
             }
