@@ -3,9 +3,11 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Input;
 using System.Windows.Media;
 
 namespace Visualizer
@@ -18,11 +20,13 @@ namespace Visualizer
         private readonly Pen pen;
         private Mesh _Mesh;
         private Matrix4x4 _worldMatrix;
-        private readonly Vector3 _viewPosition;
+        private Vector3 _cameraPosition;
+        private Vector3 _cameraTarget;
         private Matrix4x4 _viewMatrix;
         private Matrix4x4 _ProjectionMatrix;
         private Matrix4x4 _scaleMatrix;
         private Matrix4x4 _updateMatrix;
+        private Matrix4x4 _flipYMatrix;
         private UInt64 renderpass;
 
         public RendererWPF()
@@ -30,12 +34,29 @@ namespace Visualizer
             _brush = new SolidColorBrush(Colors.Gray) { Opacity = 0.5 };
             _brush.Freeze();
             _Mesh = (Application.Current as App).LoadedMesh;
-            _worldMatrix = Matrix4x4.CreateWorld(Vector3.Zero, Vector3.UnitZ, -Vector3.UnitY);
-            _viewPosition = Vector3.Transform(new Vector3(-1, 3f, -5f), _worldMatrix);
-
-            _viewMatrix = Matrix4x4.CreateLookAt(_viewPosition, Vector3.Zero, Vector3.UnitY);
+            _worldMatrix = Matrix4x4.CreateWorld(Vector3.Zero, -Vector3.UnitZ, Vector3.UnitY);
+            _cameraTarget = Vector3.Zero;
+            _cameraPosition = Vector3.Transform(new Vector3(-1, 3f, -5f), _worldMatrix);
+            _viewMatrix = Matrix4x4.CreateLookAt(_cameraPosition, _cameraTarget, Vector3.UnitY);
             _ProjectionMatrix = Matrix4x4.CreatePerspectiveFieldOfView((Single)(Math.PI / 2), 1f, 0.1f, 30);
+            _flipYMatrix = Matrix4x4.CreateRotationZ((Single)Math.PI);
             pen = new Pen(Brushes.Black, 1);
+            this.Focusable = true;
+        }
+
+        protected override void OnKeyDown(KeyEventArgs e)
+        {
+            switch (e.Key)
+            {
+                case Key.W:
+                    _cameraPosition += (_cameraPosition - _cameraTarget) * 0.1f;
+                    break;
+                case Key.S:
+                    _cameraPosition -= (_cameraPosition - _cameraTarget) * 0.1f;
+                    break;
+                default:
+                    break;
+            }
         }
 
         protected override void OnRender(DrawingContext dc)
@@ -48,6 +69,20 @@ namespace Visualizer
                 var rect = new Rect(RenderSize);
                 dc.DrawRectangle(bgBrush, null, rect);
 
+                {
+                    var vec0 = Vector3.Zero;
+                    var vecx = Vector3.Transform(Vector3.Transform(Vector3.UnitX * 2, _worldMatrix), _updateMatrix);
+                    var vecy = Vector3.Transform(Vector3.Transform(Vector3.UnitY * 2, _worldMatrix), _updateMatrix);
+                    var vecz = Vector3.Transform(Vector3.Transform(Vector3.UnitZ * 2, _worldMatrix), _updateMatrix);
+
+                    dc.DrawLine(new Pen(Brushes.Red, 1), RelativeToCenter(new Point(vec0.X, vec0.Y)), RelativeToCenter(new Point(vecx.X, vecx.Y)));
+                    dc.DrawLine(new Pen(Brushes.Green, 1), RelativeToCenter(new Point(vec0.X, vec0.Y)), RelativeToCenter(new Point(vecy.X, vecy.Y)));
+                    dc.DrawLine(new Pen(Brushes.Blue, 1), RelativeToCenter(new Point(vec0.X, vec0.Y)), RelativeToCenter(new Point(vecz.X, vecz.Y)));
+
+                    var viewPositionOut = Vector3.Transform(Vector3.Transform(_cameraPosition, _worldMatrix), _updateMatrix);
+                    dc.DrawLine(new Pen(Brushes.Yellow, 1), RelativeToCenter(new Point(vec0.X, vec0.Y)), RelativeToCenter(new Point(viewPositionOut.X, viewPositionOut.Y)));
+                }
+
                 var lessrenderpass = renderpass * 0.01f;
                 var rotationYM = Matrix4x4.CreateRotationY(lessrenderpass, Vector3.Zero);
                 var rotationAndWorld = _worldMatrix * rotationYM;
@@ -57,19 +92,20 @@ namespace Visualizer
                     {
                         var triangle = x.Transform(rotationAndWorld);
                         var normal = triangle.GetNormal();
-                        var dotviewnormal = Vector3.Dot(Vector3.Normalize(triangle.A - _viewPosition), normal);
+                        //var dotproducts = triangle.Vectors.Select(v => Vector3.Dot(v - _viewPosition, normal));
+                        //if (dotproducts.Select(x => Math.Round(x, 4)).Distinct().Count() > 1) System.Diagnostics.Debugger.Break();
+                        var dotviewnormal = Vector3.Dot(triangle.A - _cameraPosition, normal);
                         var centroid = Vector3.Divide(triangle.A + triangle.B + triangle.C, 3);
                         return (Triangle: triangle, Normal: normal, DotViewAndNormal: dotviewnormal, Centroid: centroid);
                     })
-                    .Where(x => x.DotViewAndNormal < 0)
-                    .OrderByDescending(x => x.Triangle.Vectors.Select(v => Vector3.Distance(_viewPosition, v)).Max())
+                    .Where(x => x.DotViewAndNormal <= 0)
+                    .OrderByDescending(x => x.Triangle.Vectors.Select(v => Vector3.Distance(_cameraPosition, v)).Max())
                     .Select(x => (x.Triangle, x.Normal, x.Centroid))
                     .AsParallel();
 
                 foreach (var (tIn, nIn, centroid) in toBeRendered)
                 {
                     var tOut = tIn.Transform(_updateMatrix);
-
                     var normalStartOut = Vector3.Transform(centroid, _updateMatrix);
                     var normalEndIn = centroid + (nIn * 0.1f);
                     var normalEndOut = Vector3.Transform(normalEndIn, _updateMatrix);
@@ -99,19 +135,7 @@ namespace Visualizer
                     dc.DrawLine(new Pen(Brushes.GreenYellow, 1), RelativeToCenter(new Point(normalStartOut.X, normalStartOut.Y)), RelativeToCenter(new Point(normalEndOut.X, normalEndOut.Y)));
 
                 }
-                {
-                    var vec0 = Vector3.Zero;
-                    var vecx = Vector3.Transform(Vector3.Transform(Vector3.UnitX * 2, _worldMatrix), _updateMatrix);
-                    var vecy = Vector3.Transform(Vector3.Transform(Vector3.UnitY * 2, _worldMatrix), _updateMatrix);
-                    var vecz = Vector3.Transform(Vector3.Transform(Vector3.UnitZ * 2, _worldMatrix), _updateMatrix);
-
-                    dc.DrawLine(new Pen(Brushes.Red, 1), RelativeToCenter(new Point(vec0.X, vec0.Y)), RelativeToCenter(new Point(vecx.X, vecx.Y)));
-                    dc.DrawLine(new Pen(Brushes.Green, 1), RelativeToCenter(new Point(vec0.X, vec0.Y)), RelativeToCenter(new Point(vecy.X, vecy.Y)));
-                    dc.DrawLine(new Pen(Brushes.Blue, 1), RelativeToCenter(new Point(vec0.X, vec0.Y)), RelativeToCenter(new Point(vecz.X, vecz.Y)));
-
-                    var viewPositionOut = Vector3.Transform(Vector3.Transform(_viewPosition, _worldMatrix), _updateMatrix);
-                    dc.DrawLine(new Pen(Brushes.Yellow, 1), RelativeToCenter(new Point(vec0.X, vec0.Y)), RelativeToCenter(new Point(viewPositionOut.X, viewPositionOut.Y)));
-                }
+                
             }
             finally
             {
@@ -133,8 +157,8 @@ namespace Visualizer
         protected override void OnRenderSizeChanged(SizeChangedInfo sizeInfo)
         {
             base.OnRenderSizeChanged(sizeInfo);
-            _scaleMatrix = Matrix4x4.CreateScale((Single)Math.Min(sizeInfo.NewSize.Width, sizeInfo.NewSize.Height) * 0.25f);
-            _updateMatrix = _scaleMatrix * _ProjectionMatrix * _viewMatrix;
+            _scaleMatrix = Matrix4x4.CreateScale((Single)Math.Min(sizeInfo.NewSize.Width, sizeInfo.NewSize.Height) * 0.18f);
+            _updateMatrix = _flipYMatrix * _scaleMatrix * _ProjectionMatrix * _viewMatrix;
         }
     }
 }

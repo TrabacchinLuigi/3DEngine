@@ -6,15 +6,16 @@
         xmlns:local="clr-namespace:Visualizer"
         mc:Ignorable="d"
         Height="450" Width="800"
-        Title="MainWindow"
-        MouseDown="Window_MouseDown"
-        GotFocus="Window_GotFocus"
-        LostFocus="Window_LostFocus"
-        Closed="Window_Closed"
-        SizeChanged="Window_Resized"
-        ContentRendered="Window_ContentRendered">
+        Title="MainWindow">
 
     <DockPanel x:Name="DockPanel">
+        <ToolBarTray DockPanel.Dock="Top" Background="White">
+            <ToolBar Band="1" BandIndex="1">
+                <Button Click="Button_Click">X</Button>
+            </ToolBar>
+        </ToolBarTray>
+
+
         <local:RendererWPF></local:RendererWPF>
     </DockPanel>
 
