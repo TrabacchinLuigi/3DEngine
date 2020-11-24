@@ -12,11 +12,12 @@
         <ToolBarTray DockPanel.Dock="Top" Background="White">
             <ToolBar Band="1" BandIndex="1">
                 <Button Click="Button_Click">X</Button>
+                <CheckBox IsChecked="{Binding ElementName=renderer, Path=ShowNormals}">asd</CheckBox>
             </ToolBar>
         </ToolBarTray>
 
 
-        <local:RendererWPF></local:RendererWPF>
+        <local:RendererWPF x:Name="renderer"></local:RendererWPF>
     </DockPanel>
 
 

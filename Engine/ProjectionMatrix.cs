@@ -10,17 +10,18 @@ namespace Engine
     public class ProjectionMatrix
     {
         /// <param name="fieldOfView">Expressed in rad</param>
-        public static Matrix4x4 Make(Single zNear, Single zFar, Single fieldOfView, Single aspectRatio)
+        public static Matrix4x4 Make(Single fieldOfView, Single aspectRatio, Single zNear, Single zFar)
         {
-            var cotan = 1 / (Single)Math.Tan(fieldOfView * 0.5f);
+            var f = 1 / (Single)Math.Tan(fieldOfView * 0.5f);
             var zdepth = zFar - zNear;
+            var q = zFar / zdepth;
             var matrix = new Matrix4x4()
             {
-                M11 = aspectRatio * cotan,
-                M22 = cotan,
-                M33 = zFar / zdepth,
-                M34 = -zFar * zFar / zdepth,
-                M43 = 1
+                M11 = aspectRatio * f,
+                M22 = f,
+                M33 = q,
+                M34 = 1,
+                M43 = -zNear * q,
             };
             return matrix;
         }

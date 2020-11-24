@@ -7,47 +7,21 @@ using System.Threading.Tasks;
 
 namespace Engine
 {
-    public class Mesh
+    public class Mesh : IRenderable
     {
-        //public static Mesh MakeUnitCube()
-        //{
-        //    var u000 = Vector3.Zero;
-        //    var u001 = Vector3.UnitZ;
-        //    var u010 = Vector3.UnitY;
-        //    var u011 = Vector3.UnitY + Vector3.UnitZ;
-        //    var u100 = Vector3.UnitX;
-        //    var u101 = Vector3.UnitX + Vector3.UnitZ;
-        //    var u110 = Vector3.UnitX + Vector3.UnitY;
-        //    var u111 = Vector3.One;
+        public static Mesh Transform(Mesh input, Matrix4x4 matrix)
+              => new Mesh(input.Triangles.Select(x => x.Transform(matrix)));
 
-        //    return new Mesh(
-        //        new Triangle[]
-        //        {
-        //            // sud
-        //            new Triangle(u000, u010, u110),
-        //            new Triangle(u000, u110, u100),
-        //            //bottom 
-        //            new Triangle(u001, u000, u100),
-        //            new Triangle(u001, u100, u101),
-        //            //nord
-        //            new Triangle(u101, u111, u011),
-        //            new Triangle(u101, u011, u001),
-        //            //top
-        //            new Triangle(u010, u011, u111),
-        //            new Triangle(u010, u111, u110),
-        //            // west
-        //            new Triangle(u001, u011, u010),
-        //            new Triangle(u001, u010, u000),
-        //            // east
-        //            new Triangle(u100, u110, u111),
-        //            new Triangle(u100, u111, u101),
-        //        });
-        //}
-        public Triangle[] Triangles { get; }
+        public IEnumerable<Triangle> Triangles { get; }
 
-        public Mesh(Triangle[] triangles)
+        public Mesh(IEnumerable<Triangle> triangles)
         {
             Triangles = triangles;
         }
+
+        public Mesh Transform(Matrix4x4 matrix) => Mesh.Transform(this, matrix);
+
+        IRenderable IRenderable.Transform(Matrix4x4 matrix)
+            => Transform(matrix);
     }
 }

@@ -2,7 +2,7 @@
   "profiles": {
     "Visualizer": {
       "commandName": "Project",
-      "commandLineArgs": "file=\"unitcube.obj\""
+      "commandLineArgs": "file=\"suzane.obj\""
     }
   }
 }

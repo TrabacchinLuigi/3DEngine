@@ -1,5 +1,6 @@
 ﻿using System.Linq;
 using System.Numerics;
+using System.Runtime.CompilerServices;
 
 namespace Engine
 {
@@ -11,6 +12,14 @@ namespace Engine
         public static Triangle Transform(Triangle x, Matrix4x4 matrix)
         {
             var tranformedVectors = x.Vectors.Select(x => Vector3.Transform(x, matrix)).ToArray();
+            return new Triangle(tranformedVectors[0], tranformedVectors[1], tranformedVectors[2]);
+        }
+
+        public static Triangle ToScreenSpace(Triangle x, Matrix4x4 projection)
+        {
+            var tranformedVectors = x.Vectors
+                .Select(x => x.ToScreenSpace(projection))
+                .ToArray();
             return new Triangle(tranformedVectors[0], tranformedVectors[1], tranformedVectors[2]);
         }
 
@@ -28,5 +37,6 @@ namespace Engine
         public Vector3 GetNormal() => GetNormal(this);
 
         public Triangle Transform(Matrix4x4 matrix) => Triangle.Transform(this, matrix);
+        public Triangle ToScreenSpace(Matrix4x4 matrix) => Triangle.ToScreenSpace(this, matrix);
     }
 }
