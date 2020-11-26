@@ -6,16 +6,21 @@ using System.Threading.Tasks;
 
 namespace Engine
 {
-    class Renderer
+    class Engine3D
     {
-        private readonly Scene _scene;
+        private readonly Middleware[] middlewares;
 
-        public Renderer(Scene scene) 
+        public Engine3D(Middleware[] middlewares ) 
         {
-            this._scene = scene;
+            this.middlewares = middlewares;
+            
         }
-        public void RenderFrame(Int32 cameraIndex, IViewPort view)
+        public void RenderFrame(Scene scene)
         {
+            foreach(var middleware in middlewares)
+            {
+                
+            }
             //var toWorldSpace = _scene.Renderables
             //     .Select(x => x.Transform(_scene.WorldMatrix));
             //var withNormals = toWorldSpace

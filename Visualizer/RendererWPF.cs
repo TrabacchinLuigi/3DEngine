@@ -1,10 +1,12 @@
 ﻿using Engine;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
@@ -35,12 +37,26 @@ namespace Visualizer
             set { SetValue(ShowNormalsProperty, value); }
         }
 
+        public UInt16 FPS
+        {
+            get { return (UInt16)GetValue(FPSPropertyKey.DependencyProperty); }
+            private set { SetValue(FPSPropertyKey, value); }
+        }
+
+        // Using a DependencyProperty as the backing store for FPS.  This enables animation, styling, binding, etc...
+        public static readonly DependencyPropertyKey FPSPropertyKey =
+            DependencyProperty.RegisterReadOnly(nameof(FPS), typeof(UInt16), typeof(RendererWPF), new PropertyMetadata((UInt16)0));
+
+        UInt16 _fpsAccumulator = 0;
+        Stopwatch _fpsStopwatch = new();
+
         private readonly SolidColorBrush _brush;
 
         private readonly SolidColorBrush bgBrush = Brushes.Black;
         private readonly Pens Pens = new();
 
         private Mesh _Mesh;
+        private readonly Object _DrawOrWriteMeshLock = new Object();
         private Matrix4x4 _worldMatrix;
         //private Vector3 _cameraPosition;
         //private Vector3 _cameraTarget;
@@ -48,14 +64,16 @@ namespace Visualizer
         private Single _zNear = 0.1f;
         private Single _zFar = 1000f;
         //private Matrix4x4 _viewMatrix;
-        private Matrix4x4 _ProjectionMatrix;
+        private Matrix4x4? _ProjectionMatrix;
         private Matrix4x4 _scaleMatrix;
-        private Matrix4x4 _flipyMatrix;
+        private Matrix4x4 _flipYMatrix;
+        private Matrix4x4 _scaleFlipMatrix;
         private Matrix4x4 _cameraMovementMatrix;
 
         //private Matrix4x4 _flipYMatrix;
         private Single _fov = (Single)(Math.PI / 3);
         private UInt64 renderpass;
+        private Mesh _DrawnMesh;
 
         public RendererWPF()
         {
@@ -63,7 +81,7 @@ namespace Visualizer
             _brush.Freeze();
             _Mesh = (Application.Current as App).LoadedMesh.Transform(Matrix4x4.CreateTranslation(Vector3.UnitZ * 5));
             _worldMatrix = Matrix4x4.CreateWorld(Vector3.Zero, -Vector3.UnitZ, Vector3.UnitY);
-            _flipyMatrix = Matrix4x4.CreateReflection(new Plane(Vector3.UnitY, 0));
+            _flipYMatrix = Matrix4x4.CreateReflection(new Plane(Vector3.UnitY, 0));
             //_cameraTarget = Vector3.Zero;
             //_cameraPosition = Vector3.Transform(new Vector3(0, 0, -10), _worldMatrix);
             //UpdateCameraMovementMatrix();
@@ -73,6 +91,74 @@ namespace Visualizer
             Focusable = true;
             Loaded += RendererWPF_Loaded;
 
+            _engineTask = Task.Run(SpinTheEngine);
+
+        }
+
+        private void SpinTheEngine()
+        {
+            while (!Dispatcher.HasShutdownStarted)
+            {
+                try
+                {
+
+                    if (_ProjectionMatrix == null) continue;
+                    var mesh = new Mesh(_Mesh);
+                    unchecked { renderpass++; }
+
+
+
+                    var lessrenderpass = renderpass * 0.01f;
+                    var rotationYM = /*Matrix4x4.Identity;*/ Matrix4x4.CreateRotationY(lessrenderpass, Vector3.Zero + Vector3.UnitZ * 5);
+                    var rotationAndWorld = rotationYM * /* _cameraMovementMatrix **/ _worldMatrix;
+
+#if DEBUG
+                    _frameStopWatch.Start();
+#endif
+                    var validTriangles = new List<(Triangle Triangle, Vector3 Normal)>();
+                    for (var i = 0; i < mesh.Triangles.Length; i++)
+                    {
+                        mesh.Triangles[i].Transform(rotationAndWorld);
+                    }
+                    mesh.CalculateNormals();
+                    for (var i = 0; i < mesh.Triangles.Length; i++)
+                    {
+                        ref var triangle = ref mesh.Triangles[i];
+                        ref var normal = ref mesh.Normals[i];
+                        var dotviewnormal = (triangle.A - Vector3.Zero).Dot(normal);
+                        if (dotviewnormal <= 0) validTriangles.Add((triangle, normal));
+                    }
+                    var tuples = validTriangles
+                        .Select(x => (x.Triangle, x.Normal, minDistance: x.Triangle.MinDistance(Vector3.Zero)))
+                        .OrderByDescending(x => x.minDistance)
+                        .Select(x => (x.Triangle, x.Normal));
+                    mesh = new Mesh(tuples.Select(x => x.Triangle).ToArray(), tuples.Select(x => x.Normal).ToArray());
+
+                    //if (ShowNormals) { mesh.CalculateCentroids(); }
+                    for (var i = 0; i < mesh.Triangles.Length; i++)
+                    {
+                        ref var triangle = ref mesh.Triangles[i];
+                        triangle.ToScreenSpace(_ProjectionMatrix.Value);
+                        triangle.Transform(_scaleFlipMatrix);
+                    }
+
+#if DEBUG
+                    _frameStopWatch.Stop();
+                    Debug.WriteLine($"calculating took\t{_frameStopWatch.Elapsed}ms");
+                    _frameStopWatch.Restart();
+#endif
+                    Thread.Sleep(50);
+                    lock (_DrawOrWriteMeshLock)
+                    {
+                        _DrawnMesh = mesh;
+                    }
+                    // _mre.WaitOne();
+                    Dispatcher.Invoke(() => InvalidateVisual());
+
+                }
+                catch (Exception ex) { }
+                finally { }
+            }
         }
 
         private void UpdateCameraMovementMatrix()
@@ -184,91 +270,97 @@ namespace Visualizer
             }
         }
 
+        private readonly Stopwatch _frameStopWatch = new Stopwatch();
+        private readonly Object _engineTask;
+
         protected override void OnRender(DrawingContext dc)
         {
             try
             {
-                unchecked { renderpass++; }
-
-                var rect = new Rect(RenderSize);
-                dc.DrawRectangle(bgBrush, null, rect);
-
+                lock (_DrawOrWriteMeshLock)
                 {
-                    var vec0 = Vector3.Transform(Vector3.Transform(Vector3.Zero,/* _cameraMovementMatrix **/ _worldMatrix).ToScreenSpace(_ProjectionMatrix), _flipyMatrix * _scaleMatrix);
-                    var vecx = Vector3.Transform(Vector3.Transform(Vector3.UnitX * 2, /*_cameraMovementMatrix **/ _worldMatrix).ToScreenSpace(_ProjectionMatrix), _flipyMatrix * _scaleMatrix);
-                    var vecy = Vector3.Transform(Vector3.Transform(Vector3.UnitY * 2, /*_cameraMovementMatrix **/ _worldMatrix).ToScreenSpace(_ProjectionMatrix), _flipyMatrix * _scaleMatrix);
-                    var vecz = Vector3.Transform(Vector3.Transform(Vector3.UnitZ * 2, /*_cameraMovementMatrix **/ _worldMatrix).ToScreenSpace(_ProjectionMatrix), _flipyMatrix * _scaleMatrix);
+                    //if (!_fpsStopwatch.IsRunning)
+                    //{
+                    //    System.GC.TryStartNoGCRegion(100 * 1024*1024);
+                    //}
+                    _fpsStopwatch.Start();
 
-                    dc.DrawLine(Pens.XAxis, RelativeToCenter(new Point(vec0.X, vec0.Y)), RelativeToCenter(new Point(vecx.X, vecx.Y)));
-                    dc.DrawLine(Pens.YAxis, RelativeToCenter(new Point(vec0.X, vec0.Y)), RelativeToCenter(new Point(vecy.X, vecy.Y)));
-                    dc.DrawLine(Pens.ZAxis, RelativeToCenter(new Point(vec0.X, vec0.Y)), RelativeToCenter(new Point(vecz.X, vecz.Y)));
-
-                    //var viewPositionOut = Vector3.Transform(Vector3.Transform(_cameraPosition, _cameraMovementMatrix * _worldMatrix), _updateMatrix);
-                    //dc.DrawLine(Pens.Camera, RelativeToCenter(new Point(vec0.X, vec0.Y)), RelativeToCenter(new Point(viewPositionOut.X, viewPositionOut.Y)));
-                }
-
-                var lessrenderpass = renderpass * 0.01f;
-                var rotationYM = /*Matrix4x4.Identity;*/ Matrix4x4.CreateRotationY(lessrenderpass, Vector3.Zero + Vector3.UnitZ * 5);
-                var rotationAndWorld = rotationYM * /*_cameraMovementMatrix **/ _worldMatrix;
-
-                var toBeRendered = _Mesh.Triangles
-                    .Select(x =>
+                    var rect = new Rect(RenderSize);
+                    dc.DrawRectangle(bgBrush, null, rect);
                     {
-                        var triangle = x.Transform(rotationAndWorld);
-                        var normal = triangle.GetNormal();
-                        var dotviewnormal = Vector3.Dot(triangle.A - Vector3.Zero, normal);
+                        var vec0 = Vector3.Zero;
+                        var vecx = Vector3.UnitX;
+                        var vecy = Vector3.UnitY;
+                        var vecz = Vector3.UnitZ;
+                        vec0.Transform(_worldMatrix).ToScreenSpace(_ProjectionMatrix.Value).Transform(_scaleFlipMatrix);
+                        vecx.Multiply(2).Transform(_worldMatrix).ToScreenSpace(_ProjectionMatrix.Value).Transform(_scaleFlipMatrix);
+                        vecy.Multiply(2).Transform(_worldMatrix).ToScreenSpace(_ProjectionMatrix.Value).Transform(_scaleFlipMatrix);
+                        vecz.Multiply(2).Transform(_worldMatrix).ToScreenSpace(_ProjectionMatrix.Value).Transform(_scaleFlipMatrix);
 
-                        return (Triangle: triangle, Normal: normal, DotViewAndNormal: dotviewnormal);
-                    })
-                    .Where(x => x.DotViewAndNormal <= 0)
-                    .OrderByDescending(x => x.Triangle.Vectors.Select(v => Vector3.Distance(Vector3.Zero, v)).Max())
-                    .Select(x => (x.Triangle, x.Normal))
-                    .AsParallel();
+                        dc.DrawLine(Pens.XAxis, RelativeToCenter(new Point(vec0.X, vec0.Y)), RelativeToCenter(new Point(vecx.X, vecx.Y)));
+                        dc.DrawLine(Pens.YAxis, RelativeToCenter(new Point(vec0.X, vec0.Y)), RelativeToCenter(new Point(vecy.X, vecy.Y)));
+                        dc.DrawLine(Pens.ZAxis, RelativeToCenter(new Point(vec0.X, vec0.Y)), RelativeToCenter(new Point(vecz.X, vecz.Y)));
 
-                foreach (var (tIn, nIn) in toBeRendered)
-                {
-                    var tOut = tIn.ToScreenSpace(_ProjectionMatrix).Transform(_flipyMatrix * _scaleMatrix);
-
-                    // Create a StreamGeometry to use to specify myPath.
-                    var geometry = new StreamGeometry
-                    {
-                        FillRule = FillRule.EvenOdd
-                    };
-                    // Open a StreamGeometryContext that can be used to describe this StreamGeometry
-                    // object's contents.
-                    using (var ctx = geometry.Open())
-                    {
-                        // Begin the triangle at the point specified. Notice that the shape is set to
-                        // be closed so only two lines need to be specified below to make the triangle.
-                        ctx.BeginFigure(RelativeToCenter(new Point(tOut.A.X, tOut.A.Y)), true /* is filled */, true /* is closed */);
-                        // Draw a line to the next specified point.
-                        ctx.LineTo(RelativeToCenter(new Point(tOut.B.X, tOut.B.Y)), true /* is stroked */, false /* is smooth join */);
-                        // Draw another line to the next specified point.
-                        ctx.LineTo(RelativeToCenter(new Point(tOut.C.X, tOut.C.Y)), true /* is stroked */, false /* is smooth join */);
-
+                        //var viewPositionOut = Vector3.Transform(Vector3.Transform(_cameraPosition, _cameraMovementMatrix * _worldMatrix), _updateMatrix);
+                        //dc.DrawLine(Pens.Camera, RelativeToCenter(new Point(vec0.X, vec0.Y)), RelativeToCenter(new Point(viewPositionOut.X, viewPositionOut.Y)));
                     }
-                    // Freeze the geometry (make it unmodifiable)
-                    // for additional performance benefits.
-                    geometry.Freeze();
 
-                    dc.DrawGeometry(_brush, Pens.Edge, geometry);
-                    if (ShowNormals)
+                    for (var i = 0; i < _DrawnMesh.Triangles.Length; i++)
                     {
-                        var centroid = Vector3.Divide(tIn.A + tIn.B + tIn.C, 3);
-                        var normalStartOut = Vector3.Transform(centroid.ToScreenSpace(_ProjectionMatrix), _flipyMatrix * _scaleMatrix);
-                        var normalEndIn = centroid + (nIn * 0.1f);
-                        var normalEndOut = Vector3.Transform(normalEndIn.ToScreenSpace(_ProjectionMatrix), _flipyMatrix * _scaleMatrix);
-                        dc.DrawLine(Pens.Normal, RelativeToCenter(new Point(normalStartOut.X, normalStartOut.Y)), RelativeToCenter(new Point(normalEndOut.X, normalEndOut.Y)));
+                        ref var triangle = ref _DrawnMesh.Triangles[i];
+                        // Create a StreamGeometry to use to specify myPath.
+                        var geometry = new StreamGeometry
+                        {
+                            FillRule = FillRule.EvenOdd
+                        };
+                        // Open a StreamGeometryContext that can be used to describe this StreamGeometry
+                        // object's contents.
+                        using (var ctx = geometry.Open())
+                        {
+                            // Begin the triangle at the point specified. Notice that the shape is set to
+                            // be closed so only two lines need to be specified below to make the triangle.
+                            ctx.BeginFigure(RelativeToCenter(new Point(triangle.A.X, triangle.A.Y)), true /* is filled */, true /* is closed */);
+                            // Draw a line to the next specified point.
+                            ctx.LineTo(RelativeToCenter(new Point(triangle.B.X, triangle.B.Y)), true /* is stroked */, false /* is smooth join */);
+                            // Draw another line to the next specified point.
+                            ctx.LineTo(RelativeToCenter(new Point(triangle.C.X, triangle.C.Y)), true /* is stroked */, false /* is smooth join */);
+                        }
+                        // Freeze the geometry (make it unmodifiable)
+                        // for additional performance benefits.
+                        geometry.Freeze();
+
+                        dc.DrawGeometry(_brush, Pens.Edge, geometry);
+                        if (ShowNormals)
+                        {
+                            ref var nIn = ref _DrawnMesh.Normals[i];
+                            ref var centroid = ref _DrawnMesh.Centroids[i];
+                            var normalEnd = centroid + (nIn * 0.1f);
+
+                            centroid.ToScreenSpace(_ProjectionMatrix.Value).Transform(_scaleFlipMatrix);
+                            normalEnd.ToScreenSpace(_ProjectionMatrix.Value).Transform(_scaleFlipMatrix);
+                            dc.DrawLine(Pens.Normal, RelativeToCenter(new Point(centroid.X, centroid.Y)), RelativeToCenter(new Point(normalEnd.X, normalEnd.Y)));
+                        }
                     }
+#if DEBUG
+                    _frameStopWatch.Stop();
+                    Debug.WriteLine($"drwing took\t\t\t{_frameStopWatch.Elapsed}ms");
+#endif
                 }
             }
+            catch (Exception ex) { }
             finally
             {
-                Task.Delay(25).ContinueWith(x =>
+                //_mre.Set();
+                _fpsAccumulator++;
+                if (_fpsStopwatch.ElapsedMilliseconds >= 1000)
                 {
-                    if (Dispatcher.HasShutdownStarted) return;
-                    Dispatcher.Invoke(() => InvalidateVisual());
-                });
+                    _fpsStopwatch.Stop();
+                    _fpsStopwatch.Reset();
+                    this.FPS = _fpsAccumulator;
+                    _fpsAccumulator = 0;
+                    //GC.EndNoGCRegion();
+                    //GC.Collect(0);
+                }
             }
         }
 
@@ -285,6 +377,7 @@ namespace Visualizer
             _scaleMatrix = Matrix4x4.CreateScale((Single)(sizeInfo.NewSize.Height) * 0.5f, (Single)(sizeInfo.NewSize.Width) * 0.5f, 1f);
             var ratio = (Single)(sizeInfo.NewSize.Width / sizeInfo.NewSize.Height);
             _ProjectionMatrix = ProjectionMatrix.Make(_fov, ratio, _zNear, _zFar); // Matrix4x4.CreatePerspectiveFieldOfView(_fov, ratio, _zNear, _zFar);
+            _scaleFlipMatrix = _flipYMatrix * _scaleMatrix;
 
         }
 

@@ -1,42 +1,85 @@
-﻿using System.Linq;
+﻿using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Linq;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 
 namespace Engine
 {
-    public record Triangle
+    public struct Triangle
     {
-        public static Vector3 GetNormal(Triangle x)
-            => Vector3.Normalize(Vector3.Cross(x.B - x.A, x.C - x.A));
 
-        public static Triangle Transform(Triangle x, Matrix4x4 matrix)
+        public void  Transform( in Matrix4x4 matrix)
         {
-            var tranformedVectors = x.Vectors.Select(x => Vector3.Transform(x, matrix)).ToArray();
-            return new Triangle(tranformedVectors[0], tranformedVectors[1], tranformedVectors[2]);
+            A.Transform(matrix);
+            B.Transform(matrix);
+            C.Transform(matrix);
         }
 
-        public static Triangle ToScreenSpace(Triangle x, Matrix4x4 projection)
-        {
-            var tranformedVectors = x.Vectors
-                .Select(x => x.ToScreenSpace(projection))
-                .ToArray();
-            return new Triangle(tranformedVectors[0], tranformedVectors[1], tranformedVectors[2]);
-        }
-
-        public Vector3[] Vectors { get; } = new Vector3[3];
-        public Vector3 A { get => Vectors[0]; }
-        public Vector3 B { get => Vectors[1]; }
-        public Vector3 C { get => Vectors[2]; }
+        public Vector3 A;
+        public Vector3 B;
+        public Vector3 C;
 
         public Triangle(Vector3 a, Vector3 b, Vector3 c)
         {
-            Vectors[0] = a;
-            Vectors[1] = b;
-            Vectors[2] = c;
+            A = a;
+            B = b;
+            C = c;
         }
-        public Vector3 GetNormal() => GetNormal(this);
 
-        public Triangle Transform(Matrix4x4 matrix) => Triangle.Transform(this, matrix);
-        public Triangle ToScreenSpace(Matrix4x4 matrix) => Triangle.ToScreenSpace(this, matrix);
+        public Triangle(Triangle source)
+             : this(source.A, source.B, source.C) { }
+
+
+        public Vector3 GetNormal() 
+            => Vector3.Normalize(Vector3.Cross(this.B - this.A, this.C - this.A));
+
+        public void ToScreenSpace(in Matrix4x4 projection)
+        {
+            A.ToScreenSpace(projection);
+            B.ToScreenSpace(projection);
+            C.ToScreenSpace(projection);
+        }
+
+        public void CopyTo(Span<Vector3> destination)
+        {
+            destination[0] = A;
+            destination[0] = B;
+            destination[0] = C;
+        }
+
+        public Single MaxDistance(in Vector3 point)
+        {
+            var distanceA = point.Distance(A);
+            var distanceB = point.Distance(B);
+            var distanceC = point.Distance(C);
+            return distanceA > distanceB
+                ? distanceA > distanceC
+                    ? distanceA
+                    : distanceC
+                : distanceB;
+        }
+
+        public Single MinDistance(in Vector3 point)
+        {
+            var distanceA = point.Distance(A);
+            var distanceB = point.Distance(B);
+            var distanceC = point.Distance(C);
+            return distanceA < distanceB
+                ? distanceA < distanceC
+                    ? distanceA
+                    : distanceC
+                : distanceB;
+        }
+
+        public static Vector3 GetCentroid(in Triangle triangle)
+        {
+            var sum = triangle.A + triangle.B + triangle.C;
+            sum.Divide(3);
+            return sum;
+        }
+
+        public Vector3 GetCentroid() => Triangle.GetCentroid(this);
     }
 }

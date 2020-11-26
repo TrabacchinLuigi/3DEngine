@@ -15,9 +15,13 @@
                 <CheckBox IsChecked="{Binding ElementName=renderer, Path=ShowNormals}">asd</CheckBox>
             </ToolBar>
         </ToolBarTray>
-
+        <StatusBar DockPanel.Dock="Bottom" >
+            <Label>FPS:</Label>
+            <Label Content="{Binding ElementName=renderer, Path=FPS, Mode=OneWay}" d:Content="60" />
+        </StatusBar>
 
         <local:RendererWPF x:Name="renderer"></local:RendererWPF>
+        
     </DockPanel>
 
 
